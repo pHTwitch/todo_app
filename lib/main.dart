@@ -4,35 +4,85 @@ void main() {
   runApp(const TodoApp());
 }
 
-class TodoApp extends StatelessWidget {
+class TodoApp extends StatefulWidget {
   const TodoApp({super.key});
+
+  @override
+  State<TodoApp> createState() => _TodoAppState();
+}
+
+class _TodoAppState extends State<TodoApp> {
+  bool _isDarkMode = false;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'To-Do List',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.light(
-          primary: const Color(0xFF2564CF), // Microsoft Blue
-          secondary: const Color(0xFF0078D4), // Bright Blue
-          tertiary: const Color(0xFF106EBE), // Darker Blue
-          surface: Colors.white,
-          onPrimary: Colors.white,
-          onSecondary: Colors.white,
-          onSurface: const Color(0xFF323130),
-        ),
-        scaffoldBackgroundColor: const Color(0xFFF3F2F1),
-        cardColor: Colors.white,
-        useMaterial3: true,
+      theme: _isDarkMode ? AppThemes.darkTheme : AppThemes.lightTheme,
+      home: TodoListScreen(
+        isDarkMode: _isDarkMode,
+        onThemeChanged: (bool isDark) {
+          setState(() {
+            _isDarkMode = isDark;
+          });
+        },
       ),
-      home: const TodoListScreen(),
     );
   }
 }
 
+class AppThemes {
+  // Light Theme (Original Microsoft Blue)
+  static final ThemeData lightTheme = ThemeData(
+    colorScheme: ColorScheme.light(
+      primary: const Color(0xFF2564CF), // Microsoft Blue
+      secondary: const Color(0xFF0078D4), // Bright Blue
+      tertiary: const Color(0xFF106EBE), // Darker Blue
+      surface: Colors.white,
+      onPrimary: Colors.white,
+      onSecondary: Colors.white,
+      onSurface: const Color(0xFF323130),
+    ),
+    scaffoldBackgroundColor: const Color(0xFFF3F2F1),
+    cardColor: Colors.white,
+    useMaterial3: true,
+    appBarTheme: const AppBarTheme(
+      backgroundColor: Color(0xFF2564CF),
+      elevation: 0,
+    ),
+  );
+
+  // Dark Theme (Microsoft To Do Dark)
+  static final ThemeData darkTheme = ThemeData(
+    colorScheme: ColorScheme.dark(
+      primary: const Color(0xFF0078D4), // Microsoft To Do Blue
+      secondary: const Color(0xFF106EBE),
+      tertiary: const Color(0xFF2564CF),
+      surface: const Color(0xFF1F1F1F),
+      onPrimary: Colors.white,
+      onSecondary: Colors.white,
+      onSurface: const Color(0xFFE1E1E1),
+    ),
+    scaffoldBackgroundColor: const Color(0xFF121212),
+    cardColor: const Color(0xFF2D2D2D),
+    useMaterial3: true,
+    appBarTheme: const AppBarTheme(
+      backgroundColor: Color(0xFF0078D4),
+      elevation: 0,
+    ),
+  );
+}
+
 class TodoListScreen extends StatefulWidget {
-  const TodoListScreen({super.key});
+  final bool isDarkMode;
+  final Function(bool) onThemeChanged;
+
+  const TodoListScreen({
+    super.key,
+    required this.isDarkMode,
+    required this.onThemeChanged,
+  });
 
   @override
   State<TodoListScreen> createState() => _TodoListScreenState();
@@ -105,6 +155,10 @@ class _TodoListScreenState extends State<TodoListScreen> {
     );
   }
 
+  void _toggleTheme() {
+    widget.onThemeChanged(!widget.isDarkMode);
+  }
+
   @override
   void dispose() {
     _textController.dispose();
@@ -113,11 +167,12 @@ class _TodoListScreenState extends State<TodoListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final completedCount = _todos.where((todo) => todo.isCompleted).length;
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: const Color(0xFF2564CF),
+        backgroundColor: colorScheme.primary,
         elevation: 0,
         title: const Text(
           'My Day',
@@ -127,6 +182,13 @@ class _TodoListScreenState extends State<TodoListScreen> {
             fontSize: 22,
           ),
         ),
+        actions: [
+          IconButton(
+            icon: Icon(widget.isDarkMode ? Icons.light_mode : Icons.dark_mode),
+            onPressed: _toggleTheme,
+            tooltip: widget.isDarkMode ? 'Light Mode' : 'Dark Mode',
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(40),
           child: Padding(
@@ -150,12 +212,14 @@ class _TodoListScreenState extends State<TodoListScreen> {
                 Expanded(
                   child: TextField(
                     controller: _textController,
-                    style: const TextStyle(color: Color(0xFF323130)),
+                    style: TextStyle(color: colorScheme.onSurface),
                     decoration: InputDecoration(
                       hintText: 'Add a task',
-                      hintStyle: TextStyle(color: Colors.grey[500]),
+                      hintStyle: TextStyle(
+                        color: colorScheme.onSurface.withOpacity(0.5),
+                      ),
                       filled: true,
-                      fillColor: Colors.white,
+                      fillColor: colorScheme.surface,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(4),
                         borderSide: BorderSide.none,
@@ -186,14 +250,14 @@ class _TodoListScreenState extends State<TodoListScreen> {
                   Icon(
                     Icons.check_circle_outline,
                     size: 64,
-                    color: const Color(0x4D2564CF),
+                    color: colorScheme.primary.withOpacity(0.3),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     'No tasks yet!',
                     style: TextStyle(
                       fontSize: 18,
-                      color: Colors.grey[600],
+                      color: colorScheme.onSurface.withOpacity(0.6),
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -201,7 +265,7 @@ class _TodoListScreenState extends State<TodoListScreen> {
                     'Add a task to get started',
                     style: TextStyle(
                       fontSize: 14,
-                      color: Colors.grey[500],
+                      color: colorScheme.onSurface.withOpacity(0.5),
                     ),
                   ),
                 ],
@@ -220,7 +284,7 @@ class _TodoListScreenState extends State<TodoListScreen> {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(4),
                     side: BorderSide(
-                      color: Colors.grey[300]!,
+                      color: colorScheme.onSurface.withOpacity(0.1),
                       width: 1,
                     ),
                   ),
@@ -236,7 +300,7 @@ class _TodoListScreenState extends State<TodoListScreen> {
                             ? TextDecoration.lineThrough
                             : null,
                         color: todo.isCompleted
-                            ? Colors.grey
+                            ? colorScheme.onSurface.withOpacity(0.5)
                             : null,
                       ),
                     ),
@@ -246,12 +310,12 @@ class _TodoListScreenState extends State<TodoListScreen> {
                         IconButton(
                           icon: const Icon(Icons.edit_outlined),
                           onPressed: () => _editTodo(index),
-                          color: const Color(0xFF2564CF),
+                          color: colorScheme.primary,
                         ),
                         IconButton(
                           icon: const Icon(Icons.delete_outline),
                           onPressed: () => _deleteTodo(index),
-                          color: Colors.grey[600],
+                          color: colorScheme.onSurface.withOpacity(0.6),
                         ),
                       ],
                     ),
