@@ -93,7 +93,7 @@ class TodoListScreen extends StatefulWidget {
   State<TodoListScreen> createState() => _TodoListScreenState();
 }
 
-class _TodoListScreenState extends State<TodoListScreen> {
+class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStateMixin {
   final List<TodoItem> _todos = [];
   final List<String> _categories = ['My Day', 'Work', 'Personal', 'Shopping'];
   final TextEditingController _textController = TextEditingController();
@@ -104,10 +104,40 @@ class _TodoListScreenState extends State<TodoListScreen> {
   String _filterType = 'all';
   bool _isSidebarOpen = true;
 
+  // Animation controllers
+  late AnimationController _sidebarAnimationController;
+  late AnimationController _fadeInAnimationController;
+  late Animation<Offset> _slideAnimation;
+  late Animation<double> _fadeAnimation;
+
   @override
   void initState() {
     super.initState();
     _initializePreferences();
+    _initializeAnimations();
+  }
+
+  void _initializeAnimations() {
+    // Sidebar slide animation
+    _sidebarAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(-1, 0),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _sidebarAnimationController, curve: Curves.easeInOut));
+
+    // Fade in animation for tasks
+    _fadeInAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _fadeInAnimationController, curve: Curves.easeIn),
+    );
   }
 
   Future<void> _initializePreferences() async {
@@ -118,6 +148,7 @@ class _TodoListScreenState extends State<TodoListScreen> {
     setState(() {
       _isLoading = false;
     });
+    _fadeInAnimationController.forward();
   }
 
   Future<void> _loadTodos() async {
@@ -352,6 +383,11 @@ class _TodoListScreenState extends State<TodoListScreen> {
     setState(() {
       _isSidebarOpen = !_isSidebarOpen;
     });
+    if (_isSidebarOpen) {
+      _sidebarAnimationController.forward();
+    } else {
+      _sidebarAnimationController.reverse();
+    }
     _saveSidebarState();
   }
 
@@ -483,6 +519,8 @@ class _TodoListScreenState extends State<TodoListScreen> {
   void dispose() {
     _textController.dispose();
     _notesController.dispose();
+    _sidebarAnimationController.dispose();
+    _fadeInAnimationController.dispose();
     super.dispose();
   }
 
@@ -552,7 +590,9 @@ class _TodoListScreenState extends State<TodoListScreen> {
     );
   }
 
-  // MOBILE LAYOUT - Sidebar as drawer overlay
+  // Replace the _buildMobileLayout method with this fixed version:
+
+// MOBILE LAYOUT - Sidebar as drawer overlay with animation (FIXED)
   Widget _buildMobileLayout(ColorScheme colorScheme, List<TodoItem> filteredTodos, Size screenSize) {
     return Stack(
       children: [
@@ -564,23 +604,31 @@ class _TodoListScreenState extends State<TodoListScreen> {
             _buildTaskList(colorScheme, filteredTodos),
           ],
         ),
-        // Sidebar overlay
+        // Animated sidebar overlay
         if (_isSidebarOpen)
           Positioned.fill(
             child: Row(
               children: [
+                // Backdrop that fades in
                 Expanded(
                   child: GestureDetector(
                     onTap: () => _toggleSidebar(),
-                    child: Container(
-                      color: Colors.black.withValues(alpha: 0.4),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      color: Colors.black.withValues(
+                        alpha: _isSidebarOpen ? 0.4 : 0.0,
+                      ),
                     ),
                   ),
                 ),
-                SizedBox(
-                  width: screenSize.width * 0.65,
-                  child: Material(
-                    child: _buildSidebar(colorScheme),
+                // Sidebar slides in from RIGHT to LEFT (correct direction)
+                SlideTransition(
+                  position: _slideAnimation,
+                  child: SizedBox(
+                    width: screenSize.width * 0.65,
+                    child: Material(
+                      child: _buildSidebar(colorScheme),
+                    ),
                   ),
                 ),
               ],
@@ -590,14 +638,22 @@ class _TodoListScreenState extends State<TodoListScreen> {
     );
   }
 
-  // DESKTOP LAYOUT - Sidebar as fixed panel
+
+  // DESKTOP LAYOUT - Sidebar as fixed panel with animation
   Widget _buildDesktopLayout(ColorScheme colorScheme, List<TodoItem> filteredTodos) {
     return Row(
       children: [
-        // Fixed sidebar for desktop
+        // Animated sidebar for desktop
         if (_isSidebarOpen)
-          SizedBox(
-            width: 220,
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: 220),
+            duration: const Duration(milliseconds: 300),
+            builder: (context, width, child) {
+              return SizedBox(
+                width: width,
+                child: child,
+              );
+            },
             child: _buildSidebar(colorScheme),
           ),
         // Main content - takes remaining space
@@ -792,7 +848,7 @@ class _TodoListScreenState extends State<TodoListScreen> {
     );
   }
 
-  // TASK LIST SECTION
+  // TASK LIST SECTION with animations
   Widget _buildTaskList(ColorScheme colorScheme, List<TodoItem> filteredTodos) {
     return Expanded(
       child: filteredTodos.isEmpty
@@ -831,119 +887,197 @@ class _TodoListScreenState extends State<TodoListScreen> {
           final todo = filteredTodos[index];
           final actualIndex = _todos.indexOf(todo);
 
-          return Card(
-            margin: const EdgeInsets.symmetric(
-              horizontal: 8,
-              vertical: 4,
-            ),
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(4),
-              side: BorderSide(
-                color:
-                _getPriorityColor(todo.priority).withValues(alpha: 0.3),
-                width: 2,
-              ),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: ListTile(
-                leading: Checkbox(
-                  value: todo.isCompleted,
-                  onChanged: (_) => _toggleTodo(actualIndex),
-                ),
-                title: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      todo.title,
-                      style: TextStyle(
-                        decoration: todo.isCompleted
-                            ? TextDecoration.lineThrough
-                            : null,
-                        color: todo.isCompleted
-                            ? colorScheme.onSurface
-                            .withValues(alpha: 0.5)
-                            : null,
-                      ),
-                    ),
-                    if (todo.dueDate != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          'Due: ${DateFormat('MMM dd').format(todo.dueDate!)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: colorScheme.onSurface
-                                .withValues(alpha: 0.6),
-                          ),
-                        ),
-                      ),
-                    if (todo.notes.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          todo.notes,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: colorScheme.onSurface
-                                .withValues(alpha: 0.5),
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                trailing: SizedBox(
-                  width: 140,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: _getPriorityColor(todo.priority)
-                              .withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          _getPriorityLabel(todo.priority),
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: _getPriorityColor(todo.priority),
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.edit_outlined),
-                        iconSize: 18,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                            minWidth: 32, minHeight: 32),
-                        onPressed: () => _editTodo(actualIndex),
-                        color: colorScheme.primary,
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline),
-                        iconSize: 18,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                            minWidth: 32, minHeight: 32),
-                        onPressed: () => _deleteTodo(actualIndex),
-                        color: colorScheme.onSurface
-                            .withValues(alpha: 0.6),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+          return AnimatedTaskCard(
+            key: ValueKey(todo.id),
+            todo: todo,
+            actualIndex: actualIndex,
+            colorScheme: colorScheme,
+            onToggle: () => _toggleTodo(actualIndex),
+            onEdit: () => _editTodo(actualIndex),
+            onDelete: () => _deleteTodo(actualIndex),
+            getPriorityLabel: _getPriorityLabel,
+            getPriorityColor: _getPriorityColor,
           );
         },
+      ),
+    );
+  }
+}
+
+// ANIMATED TASK CARD WIDGET
+class AnimatedTaskCard extends StatefulWidget {
+  final TodoItem todo;
+  final int actualIndex;
+  final ColorScheme colorScheme;
+  final VoidCallback onToggle;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final String Function(Priority) getPriorityLabel;
+  final Color Function(Priority) getPriorityColor;
+
+  const AnimatedTaskCard({
+    required Key key,
+    required this.todo,
+    required this.actualIndex,
+    required this.colorScheme,
+    required this.onToggle,
+    required this.onEdit,
+    required this.onDelete,
+    required this.getPriorityLabel,
+    required this.getPriorityColor,
+  }) : super(key: key);
+
+  @override
+  State<AnimatedTaskCard> createState() => _AnimatedTaskCardState();
+}
+
+class _AnimatedTaskCardState extends State<AnimatedTaskCard> with SingleTickerProviderStateMixin {
+  late AnimationController _animationController;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _opacityAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 400),
+      vsync: this,
+    );
+
+    _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.elasticOut),
+    );
+
+    _opacityAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeIn),
+    );
+
+    _animationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScaleTransition(
+      scale: _scaleAnimation,
+      child: FadeTransition(
+        opacity: _opacityAnimation,
+        child: Card(
+          margin: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 4,
+          ),
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(4),
+            side: BorderSide(
+              color: widget.getPriorityColor(widget.todo.priority)
+                  .withValues(alpha: 0.3),
+              width: 2,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: ListTile(
+              leading: Checkbox(
+                value: widget.todo.isCompleted,
+                onChanged: (_) => widget.onToggle(),
+              ),
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.todo.title,
+                    style: TextStyle(
+                      decoration: widget.todo.isCompleted
+                          ? TextDecoration.lineThrough
+                          : null,
+                      color: widget.todo.isCompleted
+                          ? widget.colorScheme.onSurface.withValues(alpha: 0.5)
+                          : null,
+                    ),
+                  ),
+                  if (widget.todo.dueDate != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Due: ${DateFormat('MMM dd').format(widget.todo.dueDate!)}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: widget.colorScheme.onSurface
+                              .withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ),
+                  if (widget.todo.notes.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        widget.todo.notes,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: widget.colorScheme.onSurface
+                              .withValues(alpha: 0.5),
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              trailing: SizedBox(
+                width: 140,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: widget.getPriorityColor(widget.todo.priority)
+                            .withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        widget.getPriorityLabel(widget.todo.priority),
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: widget.getPriorityColor(widget.todo.priority),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.edit_outlined),
+                      iconSize: 18,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                          minWidth: 32, minHeight: 32),
+                      onPressed: () => widget.onEdit(),
+                      color: widget.colorScheme.primary,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      iconSize: 18,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                          minWidth: 32, minHeight: 32),
+                      onPressed: () => widget.onDelete(),
+                      color: widget.colorScheme.onSurface
+                          .withValues(alpha: 0.6),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
