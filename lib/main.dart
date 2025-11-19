@@ -103,6 +103,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
   String _selectedCategory = 'My Day';
   String _filterType = 'all';
   bool _isSidebarOpen = true;
+  bool _autoSortEnabled = true;
 
   // Animation controllers
   late AnimationController _sidebarAnimationController;
@@ -145,6 +146,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
     await _loadCategories();
     await _loadTodos();
     _isSidebarOpen = _prefs.getBool('sidebarOpen') ?? true;
+    _autoSortEnabled = _prefs.getBool('autoSortEnabled') ?? true;
     setState(() {
       _isLoading = false;
     });
@@ -203,6 +205,14 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
     }
   }
 
+  Future<void> _saveAutoSortState() async {
+    try {
+      await _prefs.setBool('autoSortEnabled', _autoSortEnabled);
+    } catch (e) {
+      debugPrint('Error saving auto-sort state: $e');
+    }
+  }
+
   void _addTodo() {
     if (_textController.text.trim().isEmpty) return;
 
@@ -245,6 +255,28 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
         ),
       ),
     );
+  }
+
+  void _swapTodoUp(int index) {
+    if (index > 0 && !_autoSortEnabled) {
+      setState(() {
+        final temp = _todos[index];
+        _todos[index] = _todos[index - 1];
+        _todos[index - 1] = temp;
+      });
+      _saveTodos();
+    }
+  }
+
+  void _swapTodoDown(int index) {
+    if (index < _todos.length - 1 && !_autoSortEnabled) {
+      setState(() {
+        final temp = _todos[index];
+        _todos[index] = _todos[index + 1];
+        _todos[index + 1] = temp;
+      });
+      _saveTodos();
+    }
   }
 
   void _editTodo(int index) {
@@ -502,15 +534,18 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
       filtered = filtered.where((todo) => !todo.isCompleted).toList();
     }
 
-    filtered.sort((a, b) {
-      final priorityOrder = {
-        Priority.high: 0,
-        Priority.medium: 1,
-        Priority.low: 2
-      };
-      return (priorityOrder[a.priority] ?? 3)
-          .compareTo(priorityOrder[b.priority] ?? 3);
-    });
+    // Only sort by priority if auto-sort is enabled
+    if (_autoSortEnabled) {
+      filtered.sort((a, b) {
+        final priorityOrder = {
+          Priority.high: 0,
+          Priority.medium: 1,
+          Priority.low: 2
+        };
+        return (priorityOrder[a.priority] ?? 3)
+            .compareTo(priorityOrder[b.priority] ?? 3);
+      });
+    }
 
     return filtered;
   }
@@ -732,41 +767,74 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
   Widget _buildFilterSection(ColorScheme colorScheme) {
     return Padding(
       padding: const EdgeInsets.all(8.0),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            FilterChip(
-              label: const Text('All'),
-              selected: _filterType == 'all',
-              onSelected: (selected) {
-                setState(() {
-                  _filterType = 'all';
-                });
-              },
+      child: Column(
+        children: [
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                FilterChip(
+                  label: const Text('All'),
+                  selected: _filterType == 'all',
+                  onSelected: (selected) {
+                    setState(() {
+                      _filterType = 'all';
+                    });
+                  },
+                ),
+                const SizedBox(width: 8),
+                FilterChip(
+                  label: const Text('Active'),
+                  selected: _filterType == 'active',
+                  onSelected: (selected) {
+                    setState(() {
+                      _filterType = 'active';
+                    });
+                  },
+                ),
+                const SizedBox(width: 8),
+                FilterChip(
+                  label: const Text('Completed'),
+                  selected: _filterType == 'completed',
+                  onSelected: (selected) {
+                    setState(() {
+                      _filterType = 'completed';
+                    });
+                  },
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            FilterChip(
-              label: const Text('Active'),
-              selected: _filterType == 'active',
-              onSelected: (selected) {
-                setState(() {
-                  _filterType = 'active';
-                });
-              },
-            ),
-            const SizedBox(width: 8),
-            FilterChip(
-              label: const Text('Completed'),
-              selected: _filterType == 'completed',
-              onSelected: (selected) {
-                setState(() {
-                  _filterType = 'completed';
-                });
-              },
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                _autoSortEnabled ? Icons.sort : Icons.sort_outlined,
+                size: 18,
+                color: colorScheme.onSurface.withValues(alpha: 0.7),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Auto-Sort by Priority',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: colorScheme.onSurface.withValues(alpha: 0.7),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Switch(
+                value: _autoSortEnabled,
+                onChanged: (value) {
+                  setState(() {
+                    _autoSortEnabled = value;
+                  });
+                  _saveAutoSortState();
+                },
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -887,16 +955,91 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
           final todo = filteredTodos[index];
           final actualIndex = _todos.indexOf(todo);
 
-          return AnimatedTaskCard(
+          return Dismissible(
             key: ValueKey(todo.id),
-            todo: todo,
-            actualIndex: actualIndex,
-            colorScheme: colorScheme,
-            onToggle: () => _toggleTodo(actualIndex),
-            onEdit: () => _editTodo(actualIndex),
-            onDelete: () => _deleteTodo(actualIndex),
-            getPriorityLabel: _getPriorityLabel,
-            getPriorityColor: _getPriorityColor,
+            // Swipe right to left: Delete
+            background: Container(
+              alignment: Alignment.centerLeft,
+              padding: const EdgeInsets.only(left: 20),
+              color: Colors.green,
+              child: const Row(
+                children: [
+                  Icon(Icons.edit, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text(
+                    'Edit',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ),
+            // Swipe left to right: Edit
+            secondaryBackground: Container(
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.only(right: 20),
+              color: Colors.red,
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Text(
+                    'Delete',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                  SizedBox(width: 8),
+                  Icon(Icons.delete, color: Colors.white),
+                ],
+              ),
+            ),
+            confirmDismiss: (direction) async {
+              if (direction == DismissDirection.startToEnd) {
+                // Swipe left to right: Edit
+                _editTodo(actualIndex);
+                return false; // Don't dismiss
+              } else if (direction == DismissDirection.endToStart) {
+                // Swipe right to left: Delete
+                return await showDialog(
+                  context: context,
+                  builder: (BuildContext context) {
+                    return AlertDialog(
+                      title: const Text('Delete Task'),
+                      content: const Text('Are you sure you want to delete this task?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          child: const Text('Delete'),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              }
+              return false;
+            },
+            onDismissed: (direction) {
+              if (direction == DismissDirection.endToStart) {
+                _deleteTodo(actualIndex);
+              }
+            },
+            child: AnimatedTaskCard(
+              key: ValueKey('${todo.id}_card'),
+              todo: todo,
+              actualIndex: actualIndex,
+              colorScheme: colorScheme,
+              onToggle: () => _toggleTodo(actualIndex),
+              onEdit: () => _editTodo(actualIndex),
+              onDelete: () => _deleteTodo(actualIndex),
+              getPriorityLabel: _getPriorityLabel,
+              getPriorityColor: _getPriorityColor,
+              autoSortEnabled: _autoSortEnabled,
+              canMoveUp: !_autoSortEnabled && actualIndex > 0,
+              canMoveDown: !_autoSortEnabled && actualIndex < _todos.length - 1,
+              onMoveUp: () => _swapTodoUp(actualIndex),
+              onMoveDown: () => _swapTodoDown(actualIndex),
+            ),
           );
         },
       ),
@@ -914,6 +1057,11 @@ class AnimatedTaskCard extends StatefulWidget {
   final VoidCallback onDelete;
   final String Function(Priority) getPriorityLabel;
   final Color Function(Priority) getPriorityColor;
+  final bool autoSortEnabled;
+  final bool canMoveUp;
+  final bool canMoveDown;
+  final VoidCallback onMoveUp;
+  final VoidCallback onMoveDown;
 
   const AnimatedTaskCard({
     required Key key,
@@ -925,6 +1073,11 @@ class AnimatedTaskCard extends StatefulWidget {
     required this.onDelete,
     required this.getPriorityLabel,
     required this.getPriorityColor,
+    required this.autoSortEnabled,
+    required this.canMoveUp,
+    required this.canMoveDown,
+    required this.onMoveUp,
+    required this.onMoveDown,
   }) : super(key: key);
 
   @override
@@ -984,9 +1137,43 @@ class _AnimatedTaskCardState extends State<AnimatedTaskCard> with SingleTickerPr
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
             child: ListTile(
-              leading: Checkbox(
-                value: widget.todo.isCompleted,
-                onChanged: (_) => widget.onToggle(),
+              leading: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Show swap buttons when auto-sort is disabled
+                  if (!widget.autoSortEnabled)
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        InkWell(
+                          onTap: widget.canMoveUp ? widget.onMoveUp : null,
+                          child: Icon(
+                            Icons.arrow_upward,
+                            size: 16,
+                            color: widget.canMoveUp
+                                ? widget.colorScheme.primary
+                                : widget.colorScheme.onSurface.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        InkWell(
+                          onTap: widget.canMoveDown ? widget.onMoveDown : null,
+                          child: Icon(
+                            Icons.arrow_downward,
+                            size: 16,
+                            color: widget.canMoveDown
+                                ? widget.colorScheme.primary
+                                : widget.colorScheme.onSurface.withValues(alpha: 0.3),
+                          ),
+                        ),
+                      ],
+                    ),
+                  if (!widget.autoSortEnabled) const SizedBox(width: 8),
+                  Checkbox(
+                    value: widget.todo.isCompleted,
+                    onChanged: (_) => widget.onToggle(),
+                  ),
+                ],
               ),
               title: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
