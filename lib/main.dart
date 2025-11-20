@@ -740,6 +740,12 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
   }
 
   Widget _buildSidebar(ColorScheme colorScheme) {
+    // Pre-calculate category counts to avoid multiple iterations
+    final categoryCounts = <String, int>{};
+    for (var todo in _todos) {
+      categoryCounts[todo.category] = (categoryCounts[todo.category] ?? 0) + 1;
+    }
+    
     return Container(
       color: colorScheme.surface,
       child: Column(
@@ -749,8 +755,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
               itemCount: _categories.length,
               itemBuilder: (context, index) {
                 final category = _categories[index];
-                final count =
-                    _todos.where((t) => t.category == category).length;
+                final count = categoryCounts[category] ?? 0;
 
                 return ListTile(
                   title: Text(category),
@@ -760,6 +765,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
                   onTap: () {
                     setState(() {
                       _selectedCategory = category;
+                      _invalidateCache();
                     });
                     if (MediaQuery.of(context).size.width < 600) {
                       _toggleSidebar();
@@ -767,12 +773,12 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
                   },
                   trailing: _categories.length > 1
                       ? PopupMenuButton(
-                    itemBuilder: (context) => [
+                    itemBuilder: (context) => const [
                       PopupMenuItem(
-                        child: const Text('Delete'),
-                        onTap: () => _deleteCategory(category),
+                        child: Text('Delete'),
                       ),
                     ],
+                    onSelected: (_) => _deleteCategory(category),
                   )
                       : null,
                 );
