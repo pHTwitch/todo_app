@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'dart:ui';
 import 'package:intl/intl.dart';
 
 void main() {
@@ -997,6 +998,28 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   buildDefaultDragHandles: false,
                   itemCount: filteredTodos.length,
+                  proxyDecorator: (child, index, animation) {
+                    return AnimatedBuilder(
+                      animation: animation,
+                      builder: (context, child) {
+                        final animValue = Curves.easeInOut.transform(animation.value);
+                        final elevation = lerpDouble(0, 8, animValue)!;
+                        final scale = lerpDouble(1.0, 1.05, animValue)!;
+                        
+                        return Transform.scale(
+                          scale: scale,
+                          child: Material(
+                            elevation: elevation,
+                            color: Colors.transparent,
+                            shadowColor: colorScheme.primary.withValues(alpha: 0.5),
+                            borderRadius: BorderRadius.circular(4),
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: child,
+                    );
+                  },
                   onReorder: (oldIndex, newIndex) {
                     // Map filtered list indices to actual todo list indices
                     final actualOldIndex = _todos.indexOf(filteredTodos[oldIndex]);
