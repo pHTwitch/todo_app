@@ -38,14 +38,14 @@ class _TodoAppState extends State<TodoApp> {
 class AppThemes {
   // Light Theme (Original Microsoft Blue)
   static final ThemeData lightTheme = ThemeData(
-    colorScheme: ColorScheme.light(
-      primary: const Color(0xFF2564CF),
-      secondary: const Color(0xFF0078D4),
-      tertiary: const Color(0xFF106EBE),
+    colorScheme: const ColorScheme.light(
+      primary: Color(0xFF2564CF),
+      secondary: Color(0xFF0078D4),
+      tertiary: Color(0xFF106EBE),
       surface: Colors.white,
       onPrimary: Colors.white,
       onSecondary: Colors.white,
-      onSurface: const Color(0xFF323130),
+      onSurface: Color(0xFF323130),
     ),
     scaffoldBackgroundColor: const Color(0xFFF3F2F1),
     cardColor: Colors.white,
@@ -58,14 +58,14 @@ class AppThemes {
 
   // Dark Theme (Microsoft To Do Dark)
   static final ThemeData darkTheme = ThemeData(
-    colorScheme: ColorScheme.dark(
-      primary: const Color(0xFF0078D4),
-      secondary: const Color(0xFF106EBE),
-      tertiary: const Color(0xFF2564CF),
-      surface: const Color(0xFF1F1F1F),
+    colorScheme: const ColorScheme.dark(
+      primary: Color(0xFF0078D4),
+      secondary: Color(0xFF106EBE),
+      tertiary: Color(0xFF2564CF),
+      surface: Color(0xFF1F1F1F),
       onPrimary: Colors.white,
       onSecondary: Colors.white,
-      onSurface: const Color(0xFFE1E1E1),
+      onSurface: Color(0xFFE1E1E1),
     ),
     scaffoldBackgroundColor: const Color(0xFF121212),
     cardColor: const Color(0xFF2D2D2D),
@@ -105,6 +105,10 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
   bool _isSidebarOpen = true;
   bool _autoSortEnabled = true;
 
+  // Cache for filtered todos
+  List<TodoItem>? _cachedFilteredTodos;
+  String? _cacheKey;
+
   // Animation controllers
   late AnimationController _sidebarAnimationController;
   late AnimationController _fadeInAnimationController;
@@ -143,11 +147,17 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
 
   Future<void> _initializePreferences() async {
     _prefs = await SharedPreferences.getInstance();
+    
+    // Batch all reads together
+    final sidebarOpen = _prefs.getBool('sidebarOpen') ?? true;
+    final autoSort = _prefs.getBool('autoSortEnabled') ?? true;
+    
     await _loadCategories();
     await _loadTodos();
-    _isSidebarOpen = _prefs.getBool('sidebarOpen') ?? true;
-    _autoSortEnabled = _prefs.getBool('autoSortEnabled') ?? true;
+    
     setState(() {
+      _isSidebarOpen = sidebarOpen;
+      _autoSortEnabled = autoSort;
       _isLoading = false;
     });
     _fadeInAnimationController.forward();
@@ -181,8 +191,8 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
 
   Future<void> _saveTodos() async {
     try {
-      final todosJson =
-      _todos.map((todo) => jsonEncode(todo.toJson())).toList();
+      // Use optimized JSON encoding with caching
+      final todosJson = _todos.map((todo) => todo.toJsonString()).toList();
       await _prefs.setStringList('todos', todosJson);
     } catch (e) {
       debugPrint('Error saving todos: $e');
@@ -223,6 +233,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
         category: _selectedCategory,
       ));
       _textController.clear();
+      _invalidateCache();
     });
     _saveTodos();
   }
@@ -230,6 +241,8 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
   void _toggleTodo(int index) {
     setState(() {
       _todos[index].isCompleted = !_todos[index].isCompleted;
+      _todos[index].markDirty();
+      _invalidateCache();
     });
     _saveTodos();
   }
@@ -238,6 +251,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
     final deletedTodo = _todos[index];
     setState(() {
       _todos.removeAt(index);
+      _invalidateCache();
     });
     _saveTodos();
 
@@ -249,6 +263,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
           onPressed: () {
             setState(() {
               _todos.insert(index, deletedTodo);
+              _invalidateCache();
             });
             _saveTodos();
           },
@@ -263,6 +278,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
         final temp = _todos[index];
         _todos[index] = _todos[index - 1];
         _todos[index - 1] = temp;
+        _invalidateCache();
       });
       _saveTodos();
     }
@@ -274,6 +290,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
         final temp = _todos[index];
         _todos[index] = _todos[index + 1];
         _todos[index + 1] = temp;
+        _invalidateCache();
       });
       _saveTodos();
     }
@@ -326,6 +343,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
                         // Also update in the main list to reflect changes immediately
                         setState(() {
                           _todos[index].priority = priority;
+                          _todos[index].markDirty();
                         });
                       },
                     );
@@ -397,8 +415,10 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
                     _todos[index].priority = selectedPriority;
                     _todos[index].dueDate = selectedDate;
                     _todos[index].notes = _notesController.text.trim();
+                    _todos[index].markDirty();
                     _textController.clear();
                     _notesController.clear();
+                    _invalidateCache();
                   });
                   _saveTodos();
                   Navigator.pop(context);
@@ -489,12 +509,14 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
                 for (var todo in _todos) {
                   if (todo.category == category) {
                     todo.category = 'My Day';
+                    todo.markDirty();
                   }
                 }
                 _categories.remove(category);
                 if (_selectedCategory == category) {
                   _selectedCategory = 'My Day';
                 }
+                _invalidateCache();
               });
               _saveCategories();
               _saveTodos();
@@ -530,6 +552,14 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
   }
 
   List<TodoItem> _getFilteredTodos() {
+    // Create a cache key based on current filter state
+    final currentCacheKey = '$_selectedCategory:$_filterType:$_autoSortEnabled:${_todos.length}';
+    
+    // Return cached result if available and valid
+    if (_cachedFilteredTodos != null && _cacheKey == currentCacheKey) {
+      return _cachedFilteredTodos!;
+    }
+    
     var filtered =
     _todos.where((todo) => todo.category == _selectedCategory).toList();
 
@@ -552,7 +582,16 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
       });
     }
 
+    // Cache the result
+    _cachedFilteredTodos = filtered;
+    _cacheKey = currentCacheKey;
+
     return filtered;
+  }
+
+  void _invalidateCache() {
+    _cachedFilteredTodos = null;
+    _cacheKey = null;
   }
 
   @override
@@ -577,6 +616,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
     }
 
     final colorScheme = Theme.of(context).colorScheme;
+    // Compute filtered todos once per build
     final filteredTodos = _getFilteredTodos();
     final completedCount =
         filteredTodos.where((todo) => todo.isCompleted).length;
@@ -770,6 +810,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
                   onSelected: (selected) {
                     setState(() {
                       _filterType = 'all';
+                      _invalidateCache();
                     });
                   },
                 ),
@@ -780,6 +821,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
                   onSelected: (selected) {
                     setState(() {
                       _filterType = 'active';
+                      _invalidateCache();
                     });
                   },
                 ),
@@ -790,6 +832,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
                   onSelected: (selected) {
                     setState(() {
                       _filterType = 'completed';
+                      _invalidateCache();
                     });
                   },
                 ),
@@ -819,6 +862,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
                 onChanged: (value) {
                   setState(() {
                     _autoSortEnabled = value;
+                    _invalidateCache();
                   });
                   _saveAutoSortState();
                 },
@@ -937,93 +981,97 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
           ],
         ),
       )
-          : ListView.builder(
+          : ListView.separated(
         itemCount: filteredTodos.length,
         padding: const EdgeInsets.symmetric(horizontal: 8),
+        addAutomaticKeepAlives: false,
+        separatorBuilder: (context, index) => const SizedBox(height: 0),
         itemBuilder: (context, index) {
           final todo = filteredTodos[index];
           final actualIndex = _todos.indexOf(todo);
 
-          return Dismissible(
-            key: ValueKey(todo.id),
-            background: Container(
-              alignment: Alignment.centerLeft,
-              padding: const EdgeInsets.only(left: 20),
-              color: Colors.green,
-              child: const Row(
-                children: [
-                  Icon(Icons.edit, color: Colors.white),
-                  SizedBox(width: 8),
-                  Text(
-                    'Edit',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                ],
+          return RepaintBoundary(
+            child: Dismissible(
+              key: ValueKey(todo.id),
+              background: Container(
+                alignment: Alignment.centerLeft,
+                padding: const EdgeInsets.only(left: 20),
+                color: Colors.green,
+                child: const Row(
+                  children: [
+                    Icon(Icons.edit, color: Colors.white),
+                    SizedBox(width: 8),
+                    Text(
+                      'Edit',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            secondaryBackground: Container(
-              alignment: Alignment.centerRight,
-              padding: const EdgeInsets.only(right: 20),
-              color: Colors.red,
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Text(
-                    'Delete',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                  ),
-                  SizedBox(width: 8),
-                  Icon(Icons.delete, color: Colors.white),
-                ],
+              secondaryBackground: Container(
+                alignment: Alignment.centerRight,
+                padding: const EdgeInsets.only(right: 20),
+                color: Colors.red,
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Text(
+                      'Delete',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                    SizedBox(width: 8),
+                    Icon(Icons.delete, color: Colors.white),
+                  ],
+                ),
               ),
-            ),
-            confirmDismiss: (direction) async {
-              if (direction == DismissDirection.startToEnd) {
-                _editTodo(actualIndex);
+              confirmDismiss: (direction) async {
+                if (direction == DismissDirection.startToEnd) {
+                  _editTodo(actualIndex);
+                  return false;
+                } else if (direction == DismissDirection.endToStart) {
+                  return await showDialog(
+                    context: context,
+                    builder: (BuildContext context) {
+                      return AlertDialog(
+                        title: const Text('Delete Task'),
+                        content: const Text('Are you sure you want to delete this task?'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.of(context).pop(true),
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                }
                 return false;
-              } else if (direction == DismissDirection.endToStart) {
-                return await showDialog(
-                  context: context,
-                  builder: (BuildContext context) {
-                    return AlertDialog(
-                      title: const Text('Delete Task'),
-                      content: const Text('Are you sure you want to delete this task?'),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.of(context).pop(false),
-                          child: const Text('Cancel'),
-                        ),
-                        FilledButton(
-                          onPressed: () => Navigator.of(context).pop(true),
-                          child: const Text('Delete'),
-                        ),
-                      ],
-                    );
-                  },
-                );
-              }
-              return false;
-            },
-            onDismissed: (direction) {
-              if (direction == DismissDirection.endToStart) {
-                _deleteTodo(actualIndex);
-              }
-            },
-            child: AnimatedTaskCard(
-              key: ValueKey('${todo.id}_card'),
-              todo: todo,
-              actualIndex: actualIndex,
-              colorScheme: colorScheme,
-              onToggle: () => _toggleTodo(actualIndex),
-              onEdit: () => _editTodo(actualIndex),
-              onDelete: () => _deleteTodo(actualIndex),
-              getPriorityLabel: _getPriorityLabel,
-              getPriorityColor: _getPriorityColor,
-              autoSortEnabled: _autoSortEnabled,
-              canMoveUp: !_autoSortEnabled && actualIndex > 0,
-              canMoveDown: !_autoSortEnabled && actualIndex < _todos.length - 1,
-              onMoveUp: () => _swapTodoUp(actualIndex),
-              onMoveDown: () => _swapTodoDown(actualIndex),
+              },
+              onDismissed: (direction) {
+                if (direction == DismissDirection.endToStart) {
+                  _deleteTodo(actualIndex);
+                }
+              },
+              child: AnimatedTaskCard(
+                key: ValueKey('${todo.id}_card'),
+                todo: todo,
+                actualIndex: actualIndex,
+                colorScheme: colorScheme,
+                onToggle: () => _toggleTodo(actualIndex),
+                onEdit: () => _editTodo(actualIndex),
+                onDelete: () => _deleteTodo(actualIndex),
+                getPriorityLabel: _getPriorityLabel,
+                getPriorityColor: _getPriorityColor,
+                autoSortEnabled: _autoSortEnabled,
+                canMoveUp: !_autoSortEnabled && actualIndex > 0,
+                canMoveDown: !_autoSortEnabled && actualIndex < _todos.length - 1,
+                onMoveUp: () => _swapTodoUp(actualIndex),
+                onMoveDown: () => _swapTodoDown(actualIndex),
+              ),
             ),
           );
         },
@@ -1266,6 +1314,10 @@ class TodoItem {
   Priority priority;
   String category;
   String notes;
+  
+  // Dirty flag for lazy JSON encoding
+  bool _isDirty = false;
+  String? _cachedJson;
 
   TodoItem({
     required this.id,
@@ -1275,7 +1327,7 @@ class TodoItem {
     this.priority = Priority.low,
     this.category = 'My Day',
     this.notes = '',
-  });
+  }) : _isDirty = true;
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -1286,16 +1338,34 @@ class TodoItem {
     'category': category,
     'notes': notes,
   };
+  
+  String toJsonString() {
+    if (_isDirty || _cachedJson == null) {
+      _cachedJson = jsonEncode(toJson());
+      _isDirty = false;
+    }
+    return _cachedJson!;
+  }
+  
+  void markDirty() {
+    _isDirty = true;
+  }
 
-  factory TodoItem.fromJson(Map<String, dynamic> json) => TodoItem(
-    id: json['id'] as String,
-    title: json['title'] as String,
-    isCompleted: json['isCompleted'] as bool? ?? false,
-    dueDate: json['dueDate'] != null
-        ? DateTime.parse(json['dueDate'] as String)
-        : null,
-    priority: Priority.values[json['priority'] as int? ?? 0],
-    category: json['category'] as String? ?? 'My Day',
-    notes: json['notes'] as String? ?? '',
-  );
+  factory TodoItem.fromJson(Map<String, dynamic> json) {
+    final item = TodoItem(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      isCompleted: json['isCompleted'] as bool? ?? false,
+      dueDate: json['dueDate'] != null
+          ? DateTime.parse(json['dueDate'] as String)
+          : null,
+      priority: Priority.values[json['priority'] as int? ?? 0],
+      category: json['category'] as String? ?? 'My Day',
+      notes: json['notes'] as String? ?? '',
+    );
+    // Mark as clean since we just loaded from JSON
+    item._isDirty = false;
+    item._cachedJson = jsonEncode(json);
+    return item;
+  }
 }
