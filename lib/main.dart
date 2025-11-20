@@ -272,24 +272,15 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
     );
   }
 
-  void _swapTodoUp(int index) {
-    if (index > 0 && !_autoSortEnabled) {
+  void _reorderTodo(int oldIndex, int newIndex) {
+    if (!_autoSortEnabled) {
       setState(() {
-        final temp = _todos[index];
-        _todos[index] = _todos[index - 1];
-        _todos[index - 1] = temp;
-        _invalidateCache();
-      });
-      _saveTodos();
-    }
-  }
-
-  void _swapTodoDown(int index) {
-    if (index < _todos.length - 1 && !_autoSortEnabled) {
-      setState(() {
-        final temp = _todos[index];
-        _todos[index] = _todos[index + 1];
-        _todos[index + 1] = temp;
+        // When moving down, we need to account for the item being removed
+        if (newIndex > oldIndex) {
+          newIndex -= 1;
+        }
+        final item = _todos.removeAt(oldIndex);
+        _todos.insert(newIndex, item);
         _invalidateCache();
       });
       _saveTodos();
@@ -987,100 +978,129 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
           ],
         ),
       )
-          : ListView.separated(
-        itemCount: filteredTodos.length,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        addAutomaticKeepAlives: false,
-        separatorBuilder: (context, index) => const SizedBox(height: 0),
-        itemBuilder: (context, index) {
-          final todo = filteredTodos[index];
-          final actualIndex = _todos.indexOf(todo);
+          : _autoSortEnabled
+              ? ListView.separated(
+                  itemCount: filteredTodos.length,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  addAutomaticKeepAlives: false,
+                  separatorBuilder: (context, index) => const SizedBox(height: 0),
+                  itemBuilder: (context, index) {
+                    final todo = filteredTodos[index];
+                    final actualIndex = _todos.indexOf(todo);
 
-          return RepaintBoundary(
-            child: Dismissible(
-              key: ValueKey(todo.id),
-              background: Container(
-                alignment: Alignment.centerLeft,
-                padding: const EdgeInsets.only(left: 20),
-                color: Colors.green,
-                child: const Row(
-                  children: [
-                    Icon(Icons.edit, color: Colors.white),
-                    SizedBox(width: 8),
-                    Text(
-                      'Edit',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                    ),
-                  ],
+                    return RepaintBoundary(
+                      child: _buildDismissibleTask(todo, actualIndex, colorScheme),
+                    );
+                  },
+                )
+              : ReorderableListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  buildDefaultDragHandles: false,
+                  itemCount: filteredTodos.length,
+                  onReorder: (oldIndex, newIndex) {
+                    // Map filtered list indices to actual todo list indices
+                    final actualOldIndex = _todos.indexOf(filteredTodos[oldIndex]);
+                    final actualNewIndex = _todos.indexOf(filteredTodos[newIndex > oldIndex ? newIndex - 1 : newIndex]);
+                    
+                    if (newIndex > oldIndex) {
+                      _reorderTodo(actualOldIndex, actualNewIndex + 1);
+                    } else {
+                      _reorderTodo(actualOldIndex, actualNewIndex);
+                    }
+                  },
+                  itemBuilder: (context, index) {
+                    final todo = filteredTodos[index];
+                    final actualIndex = _todos.indexOf(todo);
+
+                    return RepaintBoundary(
+                      key: ValueKey(todo.id),
+                      child: ReorderableDragStartListener(
+                        index: index,
+                        child: _buildDismissibleTask(todo, actualIndex, colorScheme),
+                      ),
+                    );
+                  },
                 ),
-              ),
-              secondaryBackground: Container(
-                alignment: Alignment.centerRight,
-                padding: const EdgeInsets.only(right: 20),
-                color: Colors.red,
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Text(
-                      'Delete',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                    ),
-                    SizedBox(width: 8),
-                    Icon(Icons.delete, color: Colors.white),
-                  ],
-                ),
-              ),
-              confirmDismiss: (direction) async {
-                if (direction == DismissDirection.startToEnd) {
-                  _editTodo(actualIndex);
-                  return false;
-                } else if (direction == DismissDirection.endToStart) {
-                  return await showDialog(
-                    context: context,
-                    builder: (BuildContext context) {
-                      return AlertDialog(
-                        title: const Text('Delete Task'),
-                        content: const Text('Are you sure you want to delete this task?'),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.of(context).pop(false),
-                            child: const Text('Cancel'),
-                          ),
-                          FilledButton(
-                            onPressed: () => Navigator.of(context).pop(true),
-                            child: const Text('Delete'),
-                          ),
-                        ],
-                      );
-                    },
-                  );
-                }
-                return false;
-              },
-              onDismissed: (direction) {
-                if (direction == DismissDirection.endToStart) {
-                  _deleteTodo(actualIndex);
-                }
-              },
-              child: AnimatedTaskCard(
-                key: ValueKey('${todo.id}_card'),
-                todo: todo,
-                actualIndex: actualIndex,
-                colorScheme: colorScheme,
-                onToggle: () => _toggleTodo(actualIndex),
-                onEdit: () => _editTodo(actualIndex),
-                onDelete: () => _deleteTodo(actualIndex),
-                getPriorityLabel: _getPriorityLabel,
-                getPriorityColor: _getPriorityColor,
-                autoSortEnabled: _autoSortEnabled,
-                canMoveUp: !_autoSortEnabled && actualIndex > 0,
-                canMoveDown: !_autoSortEnabled && actualIndex < _todos.length - 1,
-                onMoveUp: () => _swapTodoUp(actualIndex),
-                onMoveDown: () => _swapTodoDown(actualIndex),
-              ),
+    );
+  }
+
+  Widget _buildDismissibleTask(TodoItem todo, int actualIndex, ColorScheme colorScheme) {
+    return Dismissible(
+      key: ValueKey('${todo.id}_dismissible'),
+      background: Container(
+        alignment: Alignment.centerLeft,
+        padding: const EdgeInsets.only(left: 20),
+        color: Colors.green,
+        child: const Row(
+          children: [
+            Icon(Icons.edit, color: Colors.white),
+            SizedBox(width: 8),
+            Text(
+              'Edit',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
+          ],
+        ),
+      ),
+      secondaryBackground: Container(
+        alignment: Alignment.centerRight,
+        padding: const EdgeInsets.only(right: 20),
+        color: Colors.red,
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Text(
+              'Delete',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(width: 8),
+            Icon(Icons.delete, color: Colors.white),
+          ],
+        ),
+      ),
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          _editTodo(actualIndex);
+          return false;
+        } else if (direction == DismissDirection.endToStart) {
+          return await showDialog(
+            context: context,
+            builder: (BuildContext context) {
+              return AlertDialog(
+                title: const Text('Delete Task'),
+                content: const Text('Are you sure you want to delete this task?'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: const Text('Delete'),
+                  ),
+                ],
+              );
+            },
           );
-        },
+        }
+        return false;
+      },
+      onDismissed: (direction) {
+        if (direction == DismissDirection.endToStart) {
+          _deleteTodo(actualIndex);
+        }
+      },
+      child: AnimatedTaskCard(
+        key: ValueKey('${todo.id}_card'),
+        todo: todo,
+        actualIndex: actualIndex,
+        colorScheme: colorScheme,
+        onToggle: () => _toggleTodo(actualIndex),
+        onEdit: () => _editTodo(actualIndex),
+        onDelete: () => _deleteTodo(actualIndex),
+        getPriorityLabel: _getPriorityLabel,
+        getPriorityColor: _getPriorityColor,
+        autoSortEnabled: _autoSortEnabled,
       ),
     );
   }
@@ -1096,10 +1116,6 @@ class AnimatedTaskCard extends StatefulWidget {
   final String Function(Priority) getPriorityLabel;
   final Color Function(Priority) getPriorityColor;
   final bool autoSortEnabled;
-  final bool canMoveUp;
-  final bool canMoveDown;
-  final VoidCallback onMoveUp;
-  final VoidCallback onMoveDown;
 
   const AnimatedTaskCard({
     required Key key,
@@ -1112,10 +1128,6 @@ class AnimatedTaskCard extends StatefulWidget {
     required this.getPriorityLabel,
     required this.getPriorityColor,
     required this.autoSortEnabled,
-    required this.canMoveUp,
-    required this.canMoveDown,
-    required this.onMoveUp,
-    required this.onMoveDown,
   }) : super(key: key);
 
   @override
@@ -1179,35 +1191,14 @@ class _AnimatedTaskCardState extends State<AnimatedTaskCard> with SingleTickerPr
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (!widget.autoSortEnabled)
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        InkWell(
-                          onTap: widget.canMoveUp ? widget.onMoveUp : null,
-                          child: Icon(
-                            Icons.arrow_upward,
-                            size: 16,
-                            color: widget.canMoveUp
-                                ? widget.colorScheme.primary
-                                : widget.colorScheme.onSurface.withValues(
-                                alpha: 0.3),
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        InkWell(
-                          onTap: widget.canMoveDown ? widget.onMoveDown : null,
-                          child: Icon(
-                            Icons.arrow_downward,
-                            size: 16,
-                            color: widget.canMoveDown
-                                ? widget.colorScheme.primary
-                                : widget.colorScheme.onSurface.withValues(
-                                alpha: 0.3),
-                          ),
-                        ),
-                      ],
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Icon(
+                        Icons.drag_indicator,
+                        size: 20,
+                        color: widget.colorScheme.onSurface.withValues(alpha: 0.5),
+                      ),
                     ),
-                  if (!widget.autoSortEnabled) const SizedBox(width: 8),
                   Checkbox(
                     value: widget.todo.isCompleted,
                     onChanged: (_) => widget.onToggle(),
