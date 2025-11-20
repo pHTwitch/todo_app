@@ -135,4 +135,49 @@ void main() {
     // If caching works, this should complete quickly without re-filtering
     expect(find.byType(Checkbox), findsNWidgets(10));
   });
+
+  testWidgets('Drag handle appears when auto-sort is disabled', (WidgetTester tester) async {
+    await tester.pumpWidget(const TodoApp());
+    await tester.pumpAndSettle();
+
+    // Add a task
+    await tester.enterText(find.byType(TextField).first, 'Test Task');
+    await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+    await tester.pumpAndSettle();
+
+    // Auto-sort should be enabled by default, no drag handle
+    expect(find.byIcon(Icons.drag_indicator), findsNothing);
+
+    // Disable auto-sort
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+
+    // Drag handle should now be visible
+    expect(find.byIcon(Icons.drag_indicator), findsOneWidget);
+  });
+
+  testWidgets('ReorderableListView used when auto-sort disabled', (WidgetTester tester) async {
+    await tester.pumpWidget(const TodoApp());
+    await tester.pumpAndSettle();
+
+    // Add multiple tasks
+    await tester.enterText(find.byType(TextField).first, 'Task 1');
+    await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField).first, 'Task 2');
+    await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+    await tester.pumpAndSettle();
+
+    // Disable auto-sort
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+
+    // Verify tasks are in expected order
+    final checkboxes = tester.widgetList<Checkbox>(find.byType(Checkbox)).toList();
+    expect(checkboxes.length, 2);
+
+    // Verify ReorderableListView is present (has ReorderableDragStartListener)
+    expect(find.byType(ReorderableDragStartListener), findsNWidgets(2));
+  });
 }
