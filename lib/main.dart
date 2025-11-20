@@ -1014,9 +1014,11 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
 
                     return RepaintBoundary(
                       key: ValueKey(todo.id),
-                      child: ReorderableDragStartListener(
-                        index: index,
-                        child: _buildDismissibleTask(todo, actualIndex, colorScheme),
+                      child: _buildDismissibleTask(
+                        todo,
+                        actualIndex,
+                        colorScheme,
+                        reorderableIndex: index,
                       ),
                     );
                   },
@@ -1024,7 +1026,12 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
     );
   }
 
-  Widget _buildDismissibleTask(TodoItem todo, int actualIndex, ColorScheme colorScheme) {
+  Widget _buildDismissibleTask(
+    TodoItem todo,
+    int actualIndex,
+    ColorScheme colorScheme, {
+    int? reorderableIndex,
+  }) {
     return Dismissible(
       key: ValueKey('${todo.id}_dismissible'),
       background: Container(
@@ -1101,6 +1108,7 @@ class _TodoListScreenState extends State<TodoListScreen> with TickerProviderStat
         getPriorityLabel: _getPriorityLabel,
         getPriorityColor: _getPriorityColor,
         autoSortEnabled: _autoSortEnabled,
+        reorderableIndex: reorderableIndex,
       ),
     );
   }
@@ -1116,6 +1124,7 @@ class AnimatedTaskCard extends StatefulWidget {
   final String Function(Priority) getPriorityLabel;
   final Color Function(Priority) getPriorityColor;
   final bool autoSortEnabled;
+  final int? reorderableIndex;
 
   const AnimatedTaskCard({
     required Key key,
@@ -1128,6 +1137,7 @@ class AnimatedTaskCard extends StatefulWidget {
     required this.getPriorityLabel,
     required this.getPriorityColor,
     required this.autoSortEnabled,
+    this.reorderableIndex,
   }) : super(key: key);
 
   @override
@@ -1190,7 +1200,19 @@ class _AnimatedTaskCardState extends State<AnimatedTaskCard> with SingleTickerPr
               leading: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (!widget.autoSortEnabled)
+                  if (!widget.autoSortEnabled && widget.reorderableIndex != null)
+                    ReorderableDelayedDragStartListener(
+                      index: widget.reorderableIndex!,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Icon(
+                          Icons.drag_indicator,
+                          size: 20,
+                          color: widget.colorScheme.onSurface.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    ),
+                  if (!widget.autoSortEnabled && widget.reorderableIndex == null)
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: Icon(
